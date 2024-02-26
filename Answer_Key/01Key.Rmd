@@ -1,0 +1,821 @@
+---
+title: "Assignment 1"
+subtitle: "GEOS 300, 2024"
+  
+---
+
+---
+
+
+
+```{r}
+# Enter your information below
+Student.Name = 'June Skeeter'
+Student.Number = 123456789
+sprintf('GEOS 300 Assignment Submission for %s: %s',Student.Name,Student.Number)
+```
+
+
+
+
+```{r}
+library("ggplot2")
+library("reshape2")
+library("latex2exp")
+library("patchwork")
+library("tidyr")
+library("knitr")
+library("plyr")
+library("lubridate")
+library("zoo")
+```
+
+ {.cell tbl-cap='Rubric for Assignment 1'}
+
+```{r}
+Data <- read.csv(file = 'https://raw.githubusercontent.com/GEOS300/GEOS300.github.io/main/Assignments/Rubrics/01.csv',sep=',',check.names = FALSE)
+
+kable(Data, col.names = gsub("[.]", " ", names(Data)), escape = FALSE)
+```
+
+
+### Question 1 
+
+Below is an example showing the first few rows of the BB climate summary data.  What values do you see listed for Incoming and outgoing $SW$ in the first row of the table, are these values reasonable?  Why or why not?  
+
+* Make suer to specify the units in your answer. Check the metadata provided [here](https://github.com/GEOS300/AssignmentData/blob/main/Climate_Summary_BB_Metadata.md) to make sure you understand the variable names and units.
+
+
+```{r}
+# Import the data from github & parse the timestamp for each record
+data_url='https://raw.githubusercontent.com/GEOS300/AssignmentData/main/Climate_Summary_BB.csv'
+df <- read.csv(file = data_url)
+
+# We have to parse the timestamp explicitly to convert it to a "time aware" object
+df$TIMESTAMP <- as.POSIXct(df$TIMESTAMP,format = "%Y-%m-%d %H%M")
+# Using this we can get a extra variables (DOY & HOUR) that will be helpful later
+df$HOUR <- format(df$TIMESTAMP,format = "%H")
+df$DOY <- format(df$TIMESTAMP,format = "%j")
+
+# Calculate Albedo
+df$Albedo = df$SW_OUT_1_1_1/df$SW_IN_1_1_1
+
+# Preview the table using head()
+head(df)
+```
+
+
+#### Answer
+
+More or less what we'd expect, but $SW\downarrow$ shouldn't be less than $SW\uparrow$, which indicates some lack of precision with the sensor.  Units $W m^{-2}$.
+
+
+### Question 2 
+
+We're going to be looking at some data from the January 2024 cold-snap (Jan 12 to Jan 19) and snowstorm (Jan 17-Jan 19) during which record low temperatures were observed and over 25cm of snow was received across the Metro Vancouver area.  The table below shows some descriptive statistics for key variables during this time period.  What was the range of air temperatures observed over this time period?  How does it compare to the range of soil temperatures observed?
+
+
+
+
+```{r}
+# Set a time window and query the dataframe
+Start ='2024-01-12 0000'
+End ='2024-01-20 0000'
+
+# Select a subset of the variables
+Query.Cols <- c('TIMESTAMP','DOY','HOUR','SW_IN_1_1_1','LW_IN_1_1_1','SW_OUT_1_1_1', 'LW_OUT_1_1_1','TA_1_1_1','TS_1','RH_1_1_1')
+
+# Run the query and save it to a new dataframe called "Selection"
+Selection <- df[which((df$TIMESTAMP >= Start) & (df$TIMESTAMP <End)),
+        Query.Cols]
+
+# Generate some descriptive statistics for the data (excluding the timestamp)
+summary(subset(Selection,select = -TIMESTAMP))
+```
+
+
+#### Answer
+
+The key point here is that $T_a$ has a much wider range (~15 $^{\circ} C$) compared to $T_s$ (~2.3 $^{\circ} C$) and that while $T_a$ was well bellow 0 $^{\circ} C$ for most of the period, $T_s$ didn't even drop below 2.5 $^{\circ} C$.
+
+### Question 3
+
+The plot below shows traces of the four radiation component, air & soil temperature, and relative humidity are.  Looking at the plot, what stands out to you?  Comment on the progression of each radiative component over time, using the temperature and humidity data to support your discussion and help explain any patterns you might see.  Do you see any issues in the data?  If so, what is a possible explanation?
+
+
+
+```{r}
+# Create a plot with three sub-plots
+# Plot the radiation components on the first sub-plot
+# Plot Ta and Ts on the second sub-plot, and RH on the third
+plot_radiation <- melt(
+  Selection[,c('TIMESTAMP','SW_IN_1_1_1','LW_IN_1_1_1','SW_OUT_1_1_1', 'LW_OUT_1_1_1')],
+  id="TIMESTAMP")
+
+p1 <- ggplot(plot_radiation, aes(x = TIMESTAMP, y = value, group = variable)) +
+  geom_line(aes(color = variable,linetype = variable)) +
+  scale_color_manual(labels = c('SW In','LW In','SW Out','LW Out'),values = c('red','red','blue','blue')) +
+  scale_linetype_manual(labels = c('SW In','LW In','SW Out','LW Out'), values = c("solid","dashed","solid","dashed"))+
+  
+  # Note: You can use a markup language called LaTeX to format labels.  Replace Units,subscript, and superscript with the appropriate unit for radiative fluxes
+  labs(y = TeX(r"($W m^{-2}$)"))+
+  ylim(0,425)+
+  ggtitle('Radiative Fluxes at CA-DBB Flux Station')
+
+plot_temp <- melt(
+  Selection[,c('TIMESTAMP','TA_1_1_1','TS_1')],
+  id="TIMESTAMP")
+p2 <- ggplot(plot_temp, aes(x = TIMESTAMP, y = value, group = variable)) +
+  geom_line(aes(color = variable,linetype = variable)) +
+  scale_color_manual(labels = c('T_a 2m','T_s 0.05m'),values = c('red','red')) +
+  scale_linetype_manual(labels = c('T_a 2m','T_s 0.05m'), values = c("solid","dashed"))+
+  labs(y = TeX(r"($C\degree)"))+
+  ylim(-15,10)+
+  ggtitle('Temperature and Humidity')
+
+p3 <- ggplot(Selection, aes(x = TIMESTAMP, y = RH_1_1_1,lty = 'RH')) +
+  geom_line(color='blue') +
+  labs(y = 'RH')+
+  ggtitle('Temperature and Humidity')
+
+
+p1 / p2 / p3 + plot_annotation(sprintf('Student # %i',Student.Number))
+```
+
+```{r}
+options(repr.plot.width=8, repr.plot.height=10)
+```
+
+
+#### Answer
+
+Important to discuss how $LW$ varies as a function of temperature [$\downarrow$ (sky/clouds); $\uparrow$ (ground)] and how $SW_\downarrow$ & $SW_\uparrow$ are effected by cloud/snow.  Big issue on day of snowfall, radiometer is covered in snow; $SW_\downarrow$ should not be larger than $SW_uparrow$
+
+
+### Question 4
+
+The plot below shows mean daily albedo.  What explains sharp increase on the 17th?
+
+
+
+```{r}
+# Create a single plot bar showing mean daily albedo
+
+# Calculate Albedo
+Selection$Albedo = Selection$SW_OUT_1_1_1/Selection$SW_IN_1_1_1
+
+# Filter out implausible values
+Selection$Albedo = replace(Selection$Albedo, Selection$SW_OUT_1_1_1>Selection$SW_IN_1_1_1 , NaN )
+
+# Resample to get mean daily Albedo, ignoring the NaN values
+DailyAlbedo<-ddply(Selection,.(DOY),summarise, Albedo=mean(Albedo,na.rm=TRUE))
+
+p <- ggplot(data=DailyAlbedo, aes(x=DOY, y=Albedo)) +
+  geom_bar(stat="identity", color="black", fill="blue")+
+  labs(y = '%')+
+  ggtitle('Daily Albedo')
+p + plot_annotation(sprintf('Student # %i',Student.Number))
+```
+
+
+#### Answer
+
+Fresh snow has a much higher albedo than either vegetated surfaces.  The significant snowfall event (30 cm) was more than enough to cover all the vegetation.
+
+## Question 5
+
+The maximum half-hourly $SW_\downarrow$ observed during this time period occurred between 12:30 and 13:00 on January 13th.  Using the equations from lecture, calculate the Local Apparent Time (LAT), solar declination $\delta$, solar zenith angle $Z$, and extraterrestrial irradiance $I_{ex}$ for the center point of this observation period (12:45).  Given the value of $I_{ex}$, compared to observed $SW_\downarrow$, what is the approximate bulk transmissivity ($\Psi_a$) coefficient of the atmosphere over CA-DBB at this point in time?  Given the value of $I_{ex}$, compared to observed $SW_\downarrow$, what is the approximate bulk transmissivity ($\Psi_a$) coefficient of the atmosphere over CA-DBB at this point in time?  
+
+**Note**: you can find the site's Lat/Lon and time zone info in the CA-DBB station metadata file.
+
+
+#### Answer
+
+Equations are in lecture [4](https://geos300.github.io/Lectures/04.html#/title-slide) & [5](https://geos300.github.io/Lectures/04.html#/title-slide) with examples for time calculations in study question [2](https://geos300.github.io/Study_Questions/02.html),
+
+Get the declination as follows:
+
+
+$$
+\begin{eqnarray}
+\delta = & 0.006918 - 0.399912 \cos( \gamma)+0.070257 \sin( \gamma)  \\
+         & -0.006758 \cos(2 \gamma) + 0.000907\sin(2\gamma) \nonumber \\
+         & -0.002697\cos(3\gamma)+0.00148 \sin(3\gamma) \nonumber 
+\end{eqnarray}
+$${#eq-Solar-Declination}
+
+where $\gamma$ is the fractional year and DOY is the day of the year:
+
+$$
+\gamma = \frac{2 \pi }{365} (DOY-1) 
+$${#eq-Fractional-Year}
+
+And local Apparent time:
+
+
+$$
+LMST = (TZ) + (\lambda-TZ_{m})\frac{4}{60}
+$${#eq-LMST}
+
+where $\lambda$ is longitude, $TZ$ is time in LST (e.g., PST = UTC-8) **in hours**, and $TZ_{m}$ is the central meridian for a given time zone (e.g., PST = -120 $^{\circ}$).  You can then calculate the local apparent time LAT as:
+
+$$
+LAT = LMST-\Delta LAT
+$${#eq-LAT}
+
+and $\Delta LAT$ is:
+$$
+\begin{eqnarray}
+\Delta LAT = & 229.18[0.000075+0.001868\cos(\gamma)-0.032077\sin(\gamma) \\
+             & -0.014615\cos(2\gamma)-0.040849\sin(2\gamma)]
+\end{eqnarray}
+$${#eq-Delta-LAT}
+
+
+And the zenith ($Z$) following:
+
+
+$$
+\cos(Z) = \sin(\beta) = \sin(\Phi)\sin(\delta)+\cos(\Phi)\cos(\delta)\cos(h)
+$${#eq-Solar-Zenith}
+
+where the hour angle (h) is a function of local apparent time (LAT):
+
+$$
+h = 15^{\circ}(12-LAT)
+$${#eq-Hour-Angle}
+
+With the zenith an the fractional DOY, you can then get $I_{ex}$
+
+
+The solar input at top of the atmosphere at any time and location hence is given as $I_ex$:
+$$
+I_{ex}=I_0(\frac{R_{av}}{R})^2\cos(Z)
+$${#eq-Extraterrestrial-Irradiance}
+
+where $I_0 \approx 1361 W m^{-2}$, $\cos(Z)$ applies the cosine law of illumination, and $(\frac{R_av}{R})$ adjusts the solar constant Earth's elliptic orbit:  
+$$
+\begin{eqnarray}
+(\frac{R_{av}}{R})^2 = & 1.00011+0.034221\cos(\gamma)+0.001280\sin(\gamma)+\\
+                     &0.000819\cos(2\gamma)+0.000077\sin(2\gamma)
+\end{eqnarray}
+$${#eq-Adjusted-Constant}
+
+Use $Z$ and $I_{ex}$ to solve for $\Phi_a$
+
+
+$$
+SW_\downarrow = I_{ex} \Psi_a^{m}
+$${#eq-Bulk-Transmissivity}
+
+where 
+
+$$
+m = \frac{1}{\cos(Z)} = \frac{1}{\sin(\beta)}
+$$
+
+
+
+```{r}
+DOY = 13 # January 13th
+TIME = 12.75 # Fractional hours
+latitude = 49.12940598 # degrees
+longitude = -122.9849319 # degrees
+central_meridian_PST = -120 # degrees
+I_0 = 1361 # W m-2
+SW_in = max(Selection$SW_IN_1_1_1) # Observed SW incoming # W m-2
+
+gamma = 2*pi /365*(DOY-1) 
+sprintf('gamma = %f',gamma)
+delta = 0.006918 - 0.399912 *cos(gamma)+0.070257 *sin(gamma)-0.006758* cos(2*gamma) + 0.000907*sin(2*gamma)-0.002697*cos(3*gamma)+0.00148 *sin(3*gamma)
+sprintf('delta = %f in radians, or %f in degrees works too',delta,delta*180/pi)
+
+LMST = TIME+(longitude-central_meridian_PST)*4/60
+sprintf('LMST = %f in hours',LMST)
+sprintf('**Note**: their was an error in the LMST equation in the lecture slide, which has since been corrected.')
+LMST_error = TIME-(longitude-central_meridian_PST)*4/60
+sprintf('Following the incorrect equation would yield: %f accept this, along with calculations of LAT, h, and z based on it',LMST_error)
+
+Delta_LAT = 229.18*(0.000075+0.001868*cos(gamma)-0.032077*sin(gamma)
+             -0.014615*cos(2*gamma)-0.040849*sin(2*gamma))
+sprintf('Delta_LAT = ',Delta_LAT,' in minutes')
+
+LAT = LMST-Delta_LAT/60
+sprintf('LAT %f',LAT)
+LAT_error=LMST_error-Delta_LAT/60
+sprintf('**Note**: %f is also acceptable as per above',LAT_error)
+
+h = 15*(12-LAT)
+sprintf('hour-angle = %f in degrees',h)
+h_error = 15*(12-LAT_error)
+sprintf('**Note**: %f is also acceptable as per above',h_error)
+
+cos_z = sin(latitude*pi/180)*sin(delta)+cos(latitude*pi/180)*cos(delta)*cos(h*pi/180)
+z = acos(cos_z)*180/pi
+sprintf('zenith angle = %f in degrees',z)
+cos_z_error = sin(latitude*pi/180)*sin(delta)+cos(latitude*pi/180)*cos(delta)*cos(h_error*pi/180)
+z_error = acos(cos_z_error)*180/pi
+sprintf('**Note** %f s also acceptable as per above < the error has a minor impact on the final answer.',z_error)
+
+R_av_Rsq = 1.00011+0.034221*cos(gamma)+0.001280*sin(gamma)+0.000819*cos(2*gamma)+0.000077*sin(2*gamma)
+I_ex=I_0*R_av_Rsq*cos(z*pi/180)
+sprintf('Extraterrestrial Irradiance = %f W m-2',I_ex)
+I_ex_error=I_0*R_av_Rsq*cos(z_error*pi/180)
+sprintf('**Note** %f is also acceptable as per above < the error has a minor impact on the answer.',I_ex_error)
+
+m = 1/cos(z*pi/180)
+m_error = 1/cos(z_error*pi/180)
+
+Psi_a = (SW_in/I_ex)**(1/m)
+sprintf('Bulk transimissivity = %f',Psi_a)
+Psi_a_error = (SW_in/I_ex)**(1/m_error)
+sprintf('**Note** %f is also acceptable as per above < the error has a minor impact on the answer.',Psi_a_error)
+```
+
+
+### Question 6
+
+Now calculate $\Psi_a$ for 12:45 January 19; the observed value of $SW_\downarrow$ was between 12:30 and 13:00 was 58.375 W$^m{-2}$.  What explains the difference between these two days?
+
+#### Answer
+
+Same procedures as above, the key cause of the difference cloud cover.  Significantly more light is attenuated on the cloudy day, that light is reflected back to space by clouds (some is also absorbed) before making it to ground level.
+
+
+
+```{r}
+DOY = 13 # January 13th
+TIME = 12.75 # Fractional hours
+latitude = 49.12940598 # degrees
+longitude = -122.9849319 # degrees
+central_meridian_PST = -120 # degrees
+I_0 = 1361 # W m-2
+SW_in = 58.375 # Observed SW incoming # W m-2
+
+gamma = 2*pi /365*(DOY-1) 
+sprintf('gamma = %f',gamma)
+delta = 0.006918 - 0.399912 *cos(gamma)+0.070257 *sin(gamma)-0.006758* cos(2*gamma) + 0.000907*sin(2*gamma)-0.002697*cos(3*gamma)+0.00148 *sin(3*gamma)
+sprintf('delta = %f in radians, or %f in degrees works too',delta,delta*180/pi)
+
+LMST = TIME+(longitude-central_meridian_PST)*4/60
+sprintf('LMST = %f in hours',LMST)
+sprintf('**Note**: their was an error in the LMST equation in the lecture slide, which has since been corrected.')
+LMST_error = TIME-(longitude-central_meridian_PST)*4/60
+sprintf('Following the incorrect equation would yield: %f accept this, along with calculations of LAT, h, and z based on it',LMST_error)
+
+Delta_LAT = 229.18*(0.000075+0.001868*cos(gamma)-0.032077*sin(gamma)
+             -0.014615*cos(2*gamma)-0.040849*sin(2*gamma))
+sprintf('Delta_LAT = ',Delta_LAT,' in minutes')
+
+LAT = LMST-Delta_LAT/60
+sprintf('LAT %f',LAT)
+LAT_error=LMST_error-Delta_LAT/60
+sprintf('**Note**: %f is also acceptable as per above',LAT_error)
+
+h = 15*(12-LAT)
+sprintf('hour-angle = %f in degrees',h)
+h_error = 15*(12-LAT_error)
+sprintf('**Note**: %f is also acceptable as per above',h_error)
+
+cos_z = sin(latitude*pi/180)*sin(delta)+cos(latitude*pi/180)*cos(delta)*cos(h*pi/180)
+z = acos(cos_z)*180/pi
+sprintf('zenith angle = %f in degrees',z)
+cos_z_error = sin(latitude*pi/180)*sin(delta)+cos(latitude*pi/180)*cos(delta)*cos(h_error*pi/180)
+z_error = acos(cos_z_error)*180/pi
+sprintf('**Note** %f s also acceptable as per above < the error has a minor impact on the final answer.',z_error)
+
+R_av_Rsq = 1.00011+0.034221*cos(gamma)+0.001280*sin(gamma)+0.000819*cos(2*gamma)+0.000077*sin(2*gamma)
+I_ex=I_0*R_av_Rsq*cos(z*pi/180)
+sprintf('Extraterrestrial Irradiance = %f W m-2',I_ex)
+I_ex_error=I_0*R_av_Rsq*cos(z_error*pi/180)
+sprintf('**Note** %f is also acceptable as per above < the error has a minor impact on the answer.',I_ex_error)
+
+m = 1/cos(z*pi/180)
+m_error = 1/cos(z_error*pi/180)
+
+Psi_a = (SW_in/I_ex)**(1/m)
+sprintf('Bulk transimissivity = %f',Psi_a)
+Psi_a_error = (SW_in/I_ex)**(1/m_error)
+sprintf('**Note** %f is also acceptable as per above < the error has a minor impact on the answer.',Psi_a_error)
+```
+
+
+### Question 7
+
+Using the examples above as a template, calculate $R_n$ over the cold-snap.  Make a scatter plot showing $R_n$ on the y-axis and $SW_\downarrow$ on the x-axis.  Describe the relationship you.
+
+#### Answer
+
+First, must calculate $R_n$ following:
+
+
+$$
+R_n = (SW \downarrow - SW \uparrow) + (LW \downarrow - LW \uparrow)
+$${#eq-Net-Radiation}
+
+
+The relationship between the two: $SW_downarrow$ is a significant driver of $R_n$, whien it is positive, it has a near strong increasing effect on $R_n$ (but the slope modified by albedo).  However, the effects of $LW$ are also present in the $R_n$ signal, so it is not a simple linear relationship.
+
+
+
+```{r}
+Selection$R_n = Selection$SW_IN_1_1_1-Selection$SW_OUT_1_1_1+Selection$LW_IN_1_1_1-Selection$LW_OUT_1_1_1
+
+
+p <- ggplot(Selection, aes(x=SW_IN_1_1_1, y=R_n)) + geom_point()+
+  labs(y = 'W m-2',x='W m-2')+
+  ggtitle('Net Radiation vs. Short-wave Irradiance')
+
+p + plot_annotation(sprintf('Student # %i',Student.Number))
+```
+
+
+### Question 8
+
+Using the examples above as a template, create a new selection to see how typical summertime conditions compare to severe winter time conditions.  Change the selection period so that it spans July 12th to July 19th, 2023.  Provide summary statistics of the same variables as those shown above and produce plots like the ones shown above as well. Discuss how each of these variables during this mid-summer period compare to those from the cold-snap period.
+
+
+#### Answer
+
+Should reproduce **All** graphs and tables above so that there can be a well rounded comparison. **For plots:** make sure all axes limits are updated properly.  Key discussion points:
+
+* Warmer weather (both $T_a$ and $T_s$).  While $T_a$ is still higher and more variable than $T_s$, it is important to note that $T_s$ in summer has a wider range than in winter (*not expected for full credit* why? > lower soil moisture + no snow cover)
+    + Should also mention data gap in $T_s$ for full credit.
+
+* More incoming $SW$ due to lower zenith angle and longer days.  Less variable due to less cloud cover.  Primarily clear sky conditions in summer
+* More incoming/outgoing $LW$ due to higher temps of both ground and sky.  Less variable due to less cloud cover.  Primarily clear sky conditions in summer
+* Albedo is lower due to lack of snow **and** green vegetation.
+* $R_n$ vs $SW_\downarrow$ is more direct because of lack of snow and reduced variability in $LW$
+* $RH$ is "lower" at times, but does not indicate drier atmosphere, because warm air can hold more water vapor
+
+
+
+```{r}
+# Set a time window and query the dataframe
+Start ='2023-07-12 0000'
+End ='2023-07-20 0000'
+
+# Select a subset of the variables
+Query.Cols <- c('TIMESTAMP','DOY','HOUR','SW_IN_1_1_1','LW_IN_1_1_1','SW_OUT_1_1_1', 'LW_OUT_1_1_1','TA_1_1_1','TS_1','RH_1_1_1')
+
+# Run the query and save it to a new dataframe called "Selection"
+Selection <- df[which((df$TIMESTAMP >= Start) & (df$TIMESTAMP <End)),
+        Query.Cols]
+
+# Generate some descriptive statistics for the data (excluding the timestamp)
+summary(subset(Selection,select = -TIMESTAMP))
+```
+
+
+
+
+```{r}
+# Create a plot with three sub-plots
+# Plot the radiation components on the first sub-plot
+# Plot Ta and Ts on the second sub-plot, and RH on the third
+plot_radiation <- melt(
+  Selection[,c('TIMESTAMP','SW_IN_1_1_1','LW_IN_1_1_1','SW_OUT_1_1_1', 'LW_OUT_1_1_1')],
+  id="TIMESTAMP")
+
+p1 <- ggplot(plot_radiation, aes(x = TIMESTAMP, y = value, group = variable)) +
+  geom_line(aes(color = variable,linetype = variable)) +
+  scale_color_manual(labels = c('SW In','LW In','SW Out','LW Out'),values = c('red','red','blue','blue')) +
+  scale_linetype_manual(labels = c('SW In','LW In','SW Out','LW Out'), values = c("solid","dashed","solid","dashed"))+
+  
+  # Note: You can use a markup language called LaTeX to format labels.  Replace Units,subscript, and superscript with the appropriate unit for radiative fluxes
+  labs(y = TeX(r"($W m^{-2}$)"))+
+  ylim(0,1200)+
+  ggtitle('Radiative Fluxes at CA-DBB Flux Station')
+
+plot_temp <- melt(
+  Selection[,c('TIMESTAMP','TA_1_1_1','TS_1')],
+  id="TIMESTAMP")
+p2 <- ggplot(plot_temp, aes(x = TIMESTAMP, y = value, group = variable)) +
+  geom_line(aes(color = variable,linetype = variable)) +
+  scale_color_manual(labels = c('T_a 2m','T_s 0.05m'),values = c('red','red')) +
+  scale_linetype_manual(labels = c('T_a 2m','T_s 0.05m'), values = c("solid","dashed"))+
+  labs(y = TeX(r"($C\degree)"))+
+  ylim(5,30)+
+  ggtitle('Temperature and Humidity')
+
+p3 <- ggplot(Selection, aes(x = TIMESTAMP, y = RH_1_1_1,lty = 'RH')) +
+  geom_line(color='blue') +
+  labs(y = 'RH')+
+  ggtitle('Temperature and Humidity')
+
+
+p1 / p2 / p3 + plot_annotation(sprintf('Student # %i',Student.Number))
+```
+
+```{r}
+options(repr.plot.width=8, repr.plot.height=10)
+```
+
+
+
+
+```{r}
+# Create a single plot bar showing mean daily albedo
+
+# Calculate Albedo
+Selection$Albedo = Selection$SW_OUT_1_1_1/Selection$SW_IN_1_1_1
+
+# Filter out implausible values
+Selection$Albedo = replace(Selection$Albedo, Selection$SW_OUT_1_1_1>Selection$SW_IN_1_1_1 , NaN )
+
+# Resample to get mean daily Albedo, ignoring the NaN values
+DailyAlbedo<-ddply(Selection,.(DOY),summarise, Albedo=mean(Albedo,na.rm=TRUE))
+
+p <- ggplot(data=DailyAlbedo, aes(x=DOY, y=Albedo)) +
+  geom_bar(stat="identity", color="black", fill="blue")+
+  labs(y = '%')+
+  ggtitle('Daily Albedo')
+p + plot_annotation(sprintf('Student # %i',Student.Number))
+```
+
+
+
+
+```{r}
+Selection$R_n = Selection$SW_IN_1_1_1-Selection$SW_OUT_1_1_1+Selection$LW_IN_1_1_1-Selection$LW_OUT_1_1_1
+
+
+p <- ggplot(Selection, aes(x=SW_IN_1_1_1, y=R_n)) + geom_point()+
+  labs(y = 'W m-2',x='W m-2')+
+  ggtitle('Net Radiation vs. Short-wave Irradiance')
+
+p + plot_annotation(sprintf('Student # %i',Student.Number))
+```
+
+
+### Question 9
+
+Find the timestamp of the observation interval when maximum $SW_\downarrow$ was observed for the mid-summer period.  You will use observations from this timestamp to answer each of the questions below.  **Note** our sites do not use daylight savings, so the UTC offset is fixed all year.  Use this information to calculate $I_{ex}$ and $\Psi_a$ for the mid-point of this observation period.  Discus how these two values compare between this observation, and the observation spanning between 12:30 and 13:00 on January 13th of 2024.  How does the magnitude differ and why does the relative timing of the maximum daily $SW_\downarrow$ differ?
+
+#### Answer
+
+Same procedures as question 5 for calculations.  Key discussion points:
+
+* The magnitude of $I_{ex}$ differs because of the solar declination $\delta$ change giving us a lower zenith angle $z$ and therefore more concentrated solar beam (closer to $I_0$), despite the fact that the earth is slightly farther from the sun during the northern hemisphere summer.  
+
+* $Psi_a$ is higher because the atmosphere has higher moisture content in the summer along with higher particulate matter content (this was discussion point from lecture).  This is interesting, because although the path length is much shorter in for this observation period than in winter, overall attenuation of the solar beam during this timestamp (~19%) exceeded that at 12:45 January 13th (~15%).  This highlights the impacts of air quality and water vapor content.
+
+* The timing of the maximum differs because:
+    1. $\Delta LAT$ changes through the year.  Not because of DST; as the sites don't use it. Local apparent time  
+    2. Part of it is "randomness" due to cloud conditions 
+        + explanation not needed for full credit: the 17th had some patchy cloud cover as indicated by the jumpiness of the SW trace on this day.  If there are clouds blocking the solar beam's path to the radiometer but some large reflective clouds to the north, some "excess" $SW$ reelected off the cloud can hit the radiometer and boost $SW_downarrow$ a bit.
+
+
+
+```{r}
+Max_SW_Obs <- Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('TIMESTAMP','SW_IN_1_1_1','DOY')]
+
+print('Timestamp of the maximum SW observation =')
+print(Max_SW_Obs$TIMESTAMP)
+
+SW_in = max(Selection$SW_IN_1_1_1) # Observed SW incoming # W m-2
+sprintf('Maximum SW = %f W m-2',SW_in)
+
+# Must divide minutes by 60 and subtract 15/60 to get fractional hour of mid-point
+Time <- as.numeric(format(Max_SW_Obs$TIMESTAMP, "%H")) +
+               as.numeric(format(Max_SW_Obs$TIMESTAMP, "%M"))/60 -15/60
+
+DOY = as.numeric(Max_SW_Obs$DOY)
+
+latitude = 49.12940598 # degrees
+longitude = -122.9849319 # degrees
+central_meridian_PST = -120 # degrees
+I_0 = 1361 # W m-2
+SW_in = max(Selection$SW_IN_1_1_1) # Observed SW incoming # W m-2
+
+gamma = 2*pi /365*(DOY-1) 
+sprintf('gamma = %f',gamma)
+delta = 0.006918 - 0.399912 *cos(gamma)+0.070257 *sin(gamma)-0.006758* cos(2*gamma) + 0.000907*sin(2*gamma)-0.002697*cos(3*gamma)+0.00148 *sin(3*gamma)
+sprintf('delta = %f in radians, or %f in degrees works too',delta,delta*180/pi)
+
+LMST = TIME+(longitude-central_meridian_PST)*4/60
+sprintf('LMST = %f in hours',LMST)
+sprintf('**Note**: their was an error in the LMST equation in the lecture slide, which has since been corrected.')
+LMST_error = TIME-(longitude-central_meridian_PST)*4/60
+sprintf('Following the incorrect equation would yield: %f accept this, along with calculations of LAT, h, and z based on it',LMST_error)
+
+Delta_LAT = 229.18*(0.000075+0.001868*cos(gamma)-0.032077*sin(gamma)
+             -0.014615*cos(2*gamma)-0.040849*sin(2*gamma))
+sprintf('Delta_LAT = ',Delta_LAT,' in minutes')
+
+LAT = LMST-Delta_LAT/60
+sprintf('LAT %f',LAT)
+LAT_error=LMST_error-Delta_LAT/60
+sprintf('**Note**: %f is also acceptable as per above',LAT_error)
+
+h = 15*(12-LAT)
+sprintf('hour-angle = %f in degrees',h)
+h_error = 15*(12-LAT_error)
+sprintf('**Note**: %f is also acceptable as per above',h_error)
+
+cos_z = sin(latitude*pi/180)*sin(delta)+cos(latitude*pi/180)*cos(delta)*cos(h*pi/180)
+z = acos(cos_z)*180/pi
+sprintf('zenith angle = %f in degrees',z)
+cos_z_error = sin(latitude*pi/180)*sin(delta)+cos(latitude*pi/180)*cos(delta)*cos(h_error*pi/180)
+z_error = acos(cos_z_error)*180/pi
+sprintf('**Note** %f s also acceptable as per above < the error has a minor impact on the final answer.',z_error)
+
+R_av_Rsq = 1.00011+0.034221*cos(gamma)+0.001280*sin(gamma)+0.000819*cos(2*gamma)+0.000077*sin(2*gamma)
+I_ex=I_0*R_av_Rsq*cos(z*pi/180)
+sprintf('Extraterrestrial Irradiance = %f W m-2',I_ex)
+I_ex_error=I_0*R_av_Rsq*cos(z_error*pi/180)
+sprintf('**Note** %f is also acceptable as per above < the error has a minor impact on the answer.',I_ex_error)
+
+m = 1/cos(z*pi/180)
+m_error = 1/cos(z_error*pi/180)
+
+Psi_a = (SW_in/I_ex)**(1/m)
+sprintf('Bulk transimissivity = %f',Psi_a)
+Psi_a_error = (SW_in/I_ex)**(1/m_error)
+sprintf('**Note** %f is also acceptable as per above < the error has a minor impact on the answer.',Psi_a_error)
+```
+
+
+### Question 10
+
+Approximately 42% of the energy in the short-wave is within the PAR band (Photosynthetically active radiation that can be used by plants to perform photosynthesis). Based on this assumption, calculate the energy available to plants (also called: photosynthetic photon flux density, PPFD) at noon in $\mu mol m^{-2}s^{-1}$. You can use the wavelength of yellow light ($\lambda 0 0.55 \mu m$) for your estimate.
+**Hint**: Consult examples in reading package for radiation geometry.
+
+#### Answer
+
+Solve for the frequency of yellow light: 
+
+
+$$
+v=\frac{c}{\lambda}
+$${#eq-Frequency}
+
+Then the energy, where h=6.63∗10−34Js
+
+
+$$
+e = hv
+$${#eq-Energy-of-Photon}
+
+Then scale by 42% to estimate PAR and get total number of photons.  Finally convert to umol with Avogadro's number.
+
+
+
+```{r}
+c = 299792458 # Speed_of_light m s-1
+h = 6.63e-34 # planks constant J s-1
+Lambda = 0.55 # Yellow light wavelength um 
+photons_per_mol = 6.022e23 # Avogadro number
+
+v = c/(Lambda*1e-6)
+sprintf('Frequency of yellow light %f in Hz',v)
+
+e = h*v
+sprintf('Energy associated with a single photon of yellow light %f J',e)
+
+# Assuming all PAR is yellow light (unrealistic, but what was instructed for simplicity):
+SW_par = SW_in*0.42 # W m-2
+
+# Convert PAR (energy in W m-2) to PPFD (total number of photons)
+SW_ppfd_N = SW_par/e
+sprintf('Phonons of "yellow" light %f',SW_ppfd_N)
+# Convert from N to umol
+SW_ppfd = SW_ppfd_N/photons_per_mol*1e6
+sprintf('PPFD of "yellow" light %f umol m-2 s-1',SW_ppfd)
+```
+
+
+### Question 11
+
+Let's assume the surface emissivity at CA-DBB is $\epsilon = 0.95$.  Using this assumption and the Stephan Boltzman law for grey bodies, estimate temperature of the land surface at CA-DBB for the time period identified above in question 9.
+
+#### Answer
+
+
+$$
+E_g = \epsilon\sigma_b T^4
+$${#eq-Stefan-Boltzman-Law-Grey-Body}
+
+where $\sigma = 5.67 * 10^-8$
+
+
+
+```{r}
+sigma = 5.67e-8
+epsilon = 0.95
+LW_out = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('LW_OUT_1_1_1')]
+
+T = (LW_out/(sigma*epsilon))**(1/4)
+
+sprintf('The surface temperature is approxiamtely %f K, which is %f C (listing only one is fine as long as UNITS are correct)',T,T-273.15)
+```
+
+
+
+### Question 12
+
+Now use the same equation to estimate the "apparent" radiative sky temperature ($T_k$) from $LW_{\downarrow}$ for this timestamp.  "Apparent" means you should assume $\epsilon{a} = 1.0$. How would you interpret $T_k$?
+
+#### Answer
+
+Same calculations as above, but with $\epsilon{a} = 1.0$.  This is assuming the sky is a black body (not really).  This would be the temperature if the sky were a perfect absorber/emitter and not transparent to $LW$.
+
+
+
+
+```{r}
+sigma = 5.67e-8
+epsilon = 1
+LW_in = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('LW_IN_1_1_1')]
+
+T = (LW_in/(sigma*epsilon))**(1/4)
+
+sprintf('The surface temperature is approxiamtely %f K, which is %f C (listing only one is fine as long as UNITS are correct)',T,T-273.15)
+```
+
+
+### Question 13
+
+Using measured $LW_{\downarrow}$ and measured air temperature $T_a$, calculate the actual bulk emissivity of the atmosphere $\varepsilon_{a}$ at noon? [2]
+
+#### Answer
+
+Plug $LW$ into $E_g$ and using $T_a$ solve for $\epsilon$
+
+
+$$
+E_g = \epsilon\sigma_b T^4
+$${#eq-Stefan-Boltzman-Law-Grey-Body}
+
+where $\sigma = 5.67 * 10^-8$
+
+
+
+```{r}
+sigma = 5.67e-8
+epsilon = 1
+LW_in = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('LW_IN_1_1_1')]
+Ta = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('TA_1_1_1')]
+epsilon = LW_in/(sigma*Ta**4)
+
+sprintf('The bulk emissivity of the atmosphere is approximately %f',epsilon)
+```
+
+
+
+
+### Question 14
+
+Using the Prata (1996) equation from lecture and measured $T_a$ and $RH$, what is the calculated apparent emissivity of the atmosphere and the calculated estimate of $LW_{\downarrow}$? How well do these approximations match with what we actually observed?
+
+#### Answer
+
+The approximation below will get pretty close (within about a couple percent) for clear sky conditions.  Won't work as well with cloud cover.  Calculate Parata (1996) as:
+
+
+$$
+\epsilon_a = [1-(1+zeta)\exp{-(a+b\zeta)^{0.5}}]
+$${#eq-Prata}
+
+where a = 1.2, b=3.0, and $\zeta = 46.5\frac{P_v}{T_a}$ with $T_a$ in Kelvin and $P_v$ in hPa.
+
+where you can use the Tetens equation to get $P_v^*$
+
+
+$$
+\epsilon_a = [1-(1+zeta)\exp{-(a+b\zeta)^{0.5}}]
+$${#eq-Prata}
+
+where a = 1.2, b=3.0, and $\zeta = 46.5\frac{P_v}{T_a}$ with $T_a$ in Kelvin and $P_v$ in hPa.
+
+
+
+```{r}
+sigma = 5.67e-8
+epsilon = 1
+LW_in = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('LW_IN_1_1_1')]
+Ta = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('TA_1_1_1')]
+Ta_c = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('TA_1_1_1')]+273.15
+
+RH = Selection[Selection$SW_IN_1_1_1==max(Selection$SW_IN_1_1_1), c('RH_1_1_1')]*.01
+
+# Use Tetens to get saturation vapor pressure
+Pv_star = 6.112*exp(17.62*Ta_c/(243.12+Ta_c))
+# Get vapor pressure for RH
+Pv = RH*Pv_star
+sprintf('Vapor pressure is %f  hpa',Pv)
+
+# Apply Parata equation
+a = 1.2
+b = 3.0
+zeta = 46.5*(Pv/Ta)
+epsilon_a = 1-(1+zeta)*exp(-(a+b*zeta)**0.5)
+
+sprintf('The bulk emissivity of the atmosphere is approximately %f',epsilon_a)
+
+LW_in_est =  epsilon_a*sigma*(Ta)**4
+
+sprintf('The estimated value of LW_in is %f W m-2, which is quite close to the observed value of %f W m-2',LW_in_est,LW_in)
+```
+
+
